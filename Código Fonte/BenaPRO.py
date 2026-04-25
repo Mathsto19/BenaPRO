@@ -41,6 +41,19 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+def find_catalog_file(filename="catalogo_erros.json"):
+    """ Procura o arquivo de catálogo em localizações comuns (raiz, Exemplos, BENAPRO). """
+    search_paths = [
+        resource_path(filename),
+        resource_path(os.path.join("Exemplos", filename)),
+        resource_path(os.path.join("BENAPRO", filename))
+    ]
+    
+    for path in search_paths:
+        if os.path.exists(path):
+            return path
+    
+    return search_paths[0]
 
 class ColorFiltersDialog(QDialog):
     """ Diálogo não modal que permite ao usuário selecionar e aplicar filtros de processamento de imagem em tempo real. """
@@ -49,6 +62,10 @@ class ColorFiltersDialog(QDialog):
         super().__init__(parent)
         self.parent_window = parent
         self.init_ui()
+
+        pos = SETTINGS.value("ColorFiltersDialog/pos", None)
+        if isinstance(pos, QPoint):
+            self.move(pos)
         
     def init_ui(self):
         """ Configura o layout, estilos e conecta os checkboxes aos métodos de filtro. """
@@ -111,6 +128,16 @@ class ColorFiltersDialog(QDialog):
                 chk.setChecked(False)
             self.filters[filter_type].setChecked(True)
             self.blockSignals(False)
+
+    def closeEvent(self, event):
+        """ Salva a posição da janela antes de fechar. """
+        SETTINGS.setValue("ColorFiltersDialog/pos", self.pos())
+        super().closeEvent(event)
+
+    def hideEvent(self, event):
+        """ Salva a posição quando a janela é ocultada. """
+        SETTINGS.setValue("ColorFiltersDialog/pos", self.pos())
+        super().hideEvent(event)
 
 SETTINGS = QSettings("BenaproDev", "Benapro")
 from functools import partial
@@ -589,26 +616,44 @@ class AvaliacaoDialog(QDialog):
                 self.atualizar_estrelas_display(idx)
                 self.atualizar_label_avaliacao(idx)
 
+    def accept(self):
+        """ Salva a posição e aceita o diálogo. """
+        SETTINGS.setValue("AvaliacaoDialog/pos", self.pos())
+        super().accept()
+
+    def reject(self):
+        """ Salva a posição e rejeita o diálogo. """
+        SETTINGS.setValue("AvaliacaoDialog/pos", self.pos())
+        super().reject()
+
     def closeEvent(self, event):
         """ Salva a posição da janela antes de fechar. """
         SETTINGS.setValue("AvaliacaoDialog/pos", self.pos())
         super().closeEvent(event)
+
+    def hideEvent(self, event):
+        """ Salva a posição quando a janela é ocultada. """
+        SETTINGS.setValue("AvaliacaoDialog/pos", self.pos())
+        super().hideEvent(event)
 
 class ErroDialog(QDialog):
     """ Diálogo não modal para seleção de erros do catálogo personalizado com validação de correspondência entre nomes e descrições. """
     def __init__(self, parent=None, custom_errors=None):
         """ Inicializa o diálogo de seleção de erros com o catálogo de erros personalizado e configura a interface. """
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         self.setWindowTitle("Selecionar Erros")
         self.setFixedSize(700, 600)
         self.custom_errors = custom_errors or {}
         self.selected_names = []
         self.selected_descriptions = []
-        
-        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowStaysOnTopHint)
+
+        # Janela não-modal para permitir interação com a imagem
+        self.setModal(False)
         self.apply_styles()
         self.init_ui()
+
+        # Restaurar seleção anterior
+        self.restaurar_selecao()
         
         pos = SETTINGS.value("ErroDialog/pos", None)
         if isinstance(pos, QPoint):
@@ -752,10 +797,60 @@ class ErroDialog(QDialog):
         """ Retorna uma tupla contendo listas vazias de nomes e tuplas (nome, descrição) das descrições selecionadas. """
         return ([], [item.data(Qt.ItemDataRole.UserRole) for item in self.list_descriptions.selectedItems()])
 
+    def accept(self):
+        """ Salva a posição e a seleção atual antes de aceitar o diálogo. """
+        SETTINGS.setValue("ErroDialog/pos", self.pos())
+        self.salvar_selecao_atual()
+        super().accept()
+
+    def reject(self):
+        """ Salva a posição e a seleção atual antes de rejeitar o diálogo. """
+        SETTINGS.setValue("ErroDialog/pos", self.pos())
+        self.salvar_selecao_atual()
+        super().reject()
+
     def closeEvent(self, event):
         """ Salva a posição da janela nas configurações antes de fechar. """
         SETTINGS.setValue("ErroDialog/pos", self.pos())
+        self.salvar_selecao_atual()
         super().closeEvent(event)
+
+    def hideEvent(self, event):
+        """ Salva a posição quando a janela é ocultada. """
+        SETTINGS.setValue("ErroDialog/pos", self.pos())
+        self.salvar_selecao_atual()
+        super().hideEvent(event)
+
+    def salvar_selecao_atual(self):
+        """ Salva os nomes e descrições selecionados atualmente. """
+        nomes_selecionados = [item.data(Qt.ItemDataRole.UserRole) for item in self.list_names.selectedItems()]
+        descricoes_selecionadas = [item.data(Qt.ItemDataRole.UserRole) for item in self.list_descriptions.selectedItems()]
+
+        SETTINGS.setValue("ErroDialog/selected_names", nomes_selecionados)
+        SETTINGS.setValue("ErroDialog/selected_descriptions", descricoes_selecionadas)
+
+    def restaurar_selecao(self):
+        """ Restaura a seleção anterior de nomes e descrições. """
+        nomes_salvos = SETTINGS.value("ErroDialog/selected_names", [])
+        descricoes_salvas = SETTINGS.value("ErroDialog/selected_descriptions", [])
+
+        if not nomes_salvos:
+            return
+
+        for i in range(self.list_names.count()):
+            item = self.list_names.item(i)
+            nome = item.data(Qt.ItemDataRole.UserRole)
+            if nome in nomes_salvos:
+                item.setSelected(True)
+
+        self.update_descriptions()
+
+        if isinstance(descricoes_salvas, list):
+            for i in range(self.list_descriptions.count()):
+                item = self.list_descriptions.item(i)
+                desc_data = item.data(Qt.ItemDataRole.UserRole)
+                if desc_data in descricoes_salvas:
+                    item.setSelected(True)
     
     def validate_and_accept(self):
         """ Valida se cada nome selecionado possui ao menos uma descrição correspondente selecionada. """
@@ -795,11 +890,15 @@ class CustomErrorsDialog(QDialog):
         """ Inicializa o diálogo de gerenciamento de erros personalizados, carrega o catálogo e constrói a interface. """
         super().__init__(parent)
         self.parent_window = parent
-        self.errors_file = "catalogo_erros.json"
+        self.errors_file = find_catalog_file("catalogo_erros.json")
         self.custom_errors = self.load_custom_errors()
         
         self.init_ui()
         self.load_existing_errors()
+
+        pos = SETTINGS.value("CustomErrorsDialog/pos", None)
+        if isinstance(pos, QPoint):
+            self.move(pos)
         
     def init_ui(self):
         """ Constrói a interface com abas para gerenciar nomes de erros e suas descrições detalhadas. """
@@ -1115,6 +1214,16 @@ class CustomErrorsDialog(QDialog):
             self.close()
         else:
             QMessageBox.warning(self, "Erro", "Erro ao salvar!")
+
+    def closeEvent(self, event):
+        """ Salva a posição da janela antes de fechar. """
+        SETTINGS.setValue("CustomErrorsDialog/pos", self.pos())
+        super().closeEvent(event)
+
+    def hideEvent(self, event):
+        """ Salva a posição quando a janela é ocultada. """
+        SETTINGS.setValue("CustomErrorsDialog/pos", self.pos())
+        super().hideEvent(event)
 
 class ClickableLabel(QLabel):
     """ QLabel clicavel usado para transformar logos em atalhos sem alterar o visual. """
@@ -1504,8 +1613,8 @@ class MainWindow(QMainWindow):
         self.btn_minimizar.setIcon(self.create_icon(QStyle.StandardPixmap.SP_TitleBarMinButton))
         self.btn_minimizar.setGeometry(self.sx(1710), self.sy(10), self.sx(60), self.sy(30))
         self.btn_minimizar.setStyleSheet(style_win_ctrl)
-        self.btn_minimizar.setToolTip("Restaurar visualização")
-        self.btn_minimizar.clicked.connect(self.reset_zoom)
+        self.btn_minimizar.setToolTip("Minimizar")
+        self.btn_minimizar.clicked.connect(self.showMinimized)
 
         self.btn_restaurar = QPushButton(self)
         self.btn_restaurar.setIcon(self.create_icon(QStyle.StandardPixmap.SP_TitleBarMaxButton))
@@ -1609,29 +1718,45 @@ class MainWindow(QMainWindow):
         """ Abre o diálogo de seleção de erros e processa a escolha do usuário, incluindo easter egg. """
         if not self.verificar_zip_carregado():
             return
+
+        if hasattr(self, 'erro_dialog') and self.erro_dialog and self.erro_dialog.isVisible():
+            self.erro_dialog.raise_()
+            self.erro_dialog.activateWindow()
+            return
         
         custom_errors = {}
-        path_json = resource_path("catalogo_erros.json")
+        path_json = find_catalog_file("catalogo_erros.json")
         if os.path.exists(path_json):
              try:
                  with open(path_json, 'r', encoding='utf-8') as f:
                      custom_errors = json.load(f)
              except:
                  pass
-        
-        dialog = ErroDialog(self, custom_errors)
-        
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            _, descricoes = dialog.get_selections()
-            
-            nomes = [d[0] for d in descricoes] 
-            
-            if any(n.upper() == "SPFC" for n in nomes):
-                self.toggle_easter_egg()
-            else:
-                self.erros_atuais = []
-                for nome, desc in descricoes:
-                    self.erros_atuais.append({"nome": nome, "descricao": desc})
+
+        self.erro_dialog = ErroDialog(self, custom_errors)
+        # Sincroniza o estado de erros mesmo ao fechar/cancelar, evitando avaliação com seleção antiga.
+        self.erro_dialog.finished.connect(lambda _: self.processar_selecao_erros(self.erro_dialog))
+        self.erro_dialog.show()
+
+    def processar_selecao_erros(self, dialog):
+        """ Processa os erros selecionados após o usuário confirmar a seleção. """
+        _, descricoes = dialog.get_selections()
+
+        nomes = [d[0] for d in descricoes]
+
+        erros_novos = [{"nome": nome, "descricao": desc} for nome, desc in descricoes]
+        assinatura_anterior = [(e.get('nome'), e.get('descricao')) for e in self.erros_atuais]
+        assinatura_nova = [(e['nome'], e['descricao']) for e in erros_novos]
+
+        if assinatura_nova != assinatura_anterior:
+            self.ultimo_estado_avaliacao = None
+            if hasattr(self, 'avaliacao_dialog') and self.avaliacao_dialog and self.avaliacao_dialog.isVisible():
+                self.avaliacao_dialog.close()
+
+        if any(n.upper() == "SPFC" for n in nomes):
+            self.toggle_easter_egg()
+        else:
+            self.erros_atuais = erros_novos
 
     def toggle_easter_egg(self):
         """ Ativa ou desativa o modo especial SPFC com áudio e imagem temática. """
@@ -2396,23 +2521,25 @@ class MainWindow(QMainWindow):
         return super().eventFilter(source, event)
 
     def reset_zoom(self):
-        """ Restaura zoom e volta de uma camada isolada para a imagem completa. """
+        """ Restaura zoom e visualização padrão (imagem completa sem filtro/camada). """
         self.zoom_factor = 1.0
 
-        if self.camada_atual is not None and hasattr(self, 'master_pixmap') and self.master_pixmap:
-            self.camada_atual = None
+        for btn in self.camada_buttons:
+            btn.blockSignals(True)
+            btn.setChecked(False)
+            btn.blockSignals(False)
 
-            for btn in self.camada_buttons:
-                btn.blockSignals(True)
-                btn.setChecked(False)
-                btn.blockSignals(False)
+        self.camada_atual = None
+        self.current_color_filter = 'normal'
 
+        if hasattr(self, 'master_pixmap') and self.master_pixmap:
             self.original_pixmap = self.master_pixmap
-            self.lbl_camada.setText("4 Camadas" if self._rgba_available else "Imagem Normal")
-            self.apply_image_filter(self.current_color_filter)
-            return
 
-        self._update_image_display()
+        self.lbl_camada.setText("4 Camadas" if self._rgba_available else "Imagem Normal")
+        self.apply_image_filter('normal')
+
+        if hasattr(self, 'color_dialog') and self.color_dialog and self.color_dialog.isVisible():
+            self.color_dialog.restore_current_filter('normal')
     
     def set_header_mode(self):
         """ Configura o cabeçalho no modo inicial onde todos os campos expandem igualmente. """
