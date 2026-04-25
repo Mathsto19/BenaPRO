@@ -1504,12 +1504,14 @@ class MainWindow(QMainWindow):
         self.btn_minimizar.setIcon(self.create_icon(QStyle.StandardPixmap.SP_TitleBarMinButton))
         self.btn_minimizar.setGeometry(self.sx(1710), self.sy(10), self.sx(60), self.sy(30))
         self.btn_minimizar.setStyleSheet(style_win_ctrl)
-        self.btn_minimizar.clicked.connect(self.showMinimized)
+        self.btn_minimizar.setToolTip("Restaurar visualização")
+        self.btn_minimizar.clicked.connect(self.reset_zoom)
 
         self.btn_restaurar = QPushButton(self)
         self.btn_restaurar.setIcon(self.create_icon(QStyle.StandardPixmap.SP_TitleBarMaxButton))
         self.btn_restaurar.setGeometry(self.sx(1780), self.sy(10), self.sx(60), self.sy(30))
         self.btn_restaurar.setStyleSheet(style_win_ctrl)
+        self.btn_restaurar.setToolTip("Restaurar visualização")
         self.btn_restaurar.clicked.connect(self.reset_zoom)
 
         self.btn_fechar = QPushButton(self)
@@ -2394,8 +2396,22 @@ class MainWindow(QMainWindow):
         return super().eventFilter(source, event)
 
     def reset_zoom(self):
-        """ Reseta o fator de zoom para 1.0 (tamanho original ajustado). """
+        """ Restaura zoom e volta de uma camada isolada para a imagem completa. """
         self.zoom_factor = 1.0
+
+        if self.camada_atual is not None and hasattr(self, 'master_pixmap') and self.master_pixmap:
+            self.camada_atual = None
+
+            for btn in self.camada_buttons:
+                btn.blockSignals(True)
+                btn.setChecked(False)
+                btn.blockSignals(False)
+
+            self.original_pixmap = self.master_pixmap
+            self.lbl_camada.setText("4 Camadas" if self._rgba_available else "Imagem Normal")
+            self.apply_image_filter(self.current_color_filter)
+            return
+
         self._update_image_display()
     
     def set_header_mode(self):
