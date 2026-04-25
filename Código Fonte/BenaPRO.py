@@ -19,7 +19,7 @@ from PyQt6.QtCore import (
 )
 
 from PyQt6.QtGui import (
-    QIcon, QPixmap, QPainter, QColor, QFont, QImage
+    QIcon, QPixmap, QPainter, QColor, QFont, QImage, QDesktopServices
 )
 
 from PyQt6.QtWidgets import (
@@ -153,9 +153,8 @@ class ZipLoaderThread(QThread):
         """ Varre o diretório temporário, identifica arquivos de imagem válidos e extrai metadados (ID, data, dedo) baseados na estrutura de pastas e nomes de arquivo. """
         media_files = []
         
-        regex_date = re.compile(r'(\d{4})[ _](\d{2})')
-        match = regex_date.search(os.path.basename(self.zip_path))
-        ano, mes = match.groups() if match else ("????", "??")
+        zip_year_month = self.extract_year_month(os.path.basename(self.zip_path))
+        zip_ano, zip_mes = zip_year_month if zip_year_month else ("????", "??")
         
         all_files = []
         
@@ -169,8 +168,17 @@ class ZipLoaderThread(QThread):
                 relative_path = file_path.replace(self.temp_dir, '').strip(os.sep)
                 path_parts = relative_path.split(os.sep)
                 
-                dia = path_parts[-3] if len(path_parts) >= 3 else "??"
+                pastas_do_arquivo = path_parts[:-1]
+                ano, mes, idx_ano_mes = self.extract_year_month_from_parts(pastas_do_arquivo)
+                if not ano:
+                    ano, mes = zip_ano, zip_mes
+
+                dia = self.extract_day_from_parts(pastas_do_arquivo, idx_ano_mes)
                 data_formatada = f"{dia}/{mes}/{ano}"
+                if "?" in data_formatada:
+                    data_por_timestamp = self.extract_date_from_filename_timestamp(file)
+                    if data_por_timestamp:
+                        data_formatada = data_por_timestamp
                 id_folder = path_parts[-2] if len(path_parts) >= 2 else "Unknown"
                 
                 nome_sem_ext = os.path.splitext(file)[0]
@@ -189,6 +197,63 @@ class ZipLoaderThread(QThread):
 
         all_files.sort(key=lambda x: (x['data'], x['id'], x['filename']))
         return all_files
+
+    @staticmethod
+    def extract_year_month(text):
+        """ Extrai ano e mes em formatos como 2024-02, 2024_02, 2024 02 ou 202402. """
+        match = re.search(r'(?<!\d)((?:19|20)\d{2})[ _-]?([01]\d)(?!\d)', text)
+        if not match:
+            return None
+
+        year, month = match.groups()
+        if 1 <= int(month) <= 12:
+            return year, month
+        return None
+
+    def extract_year_month_from_parts(self, path_parts):
+        """ Procura ano/mes em cada pasta do caminho relativo do arquivo. """
+        for idx, part in enumerate(path_parts):
+            result = self.extract_year_month(part)
+            if result:
+                year, month = result
+                return year, month, idx
+        return None, None, None
+
+    @staticmethod
+    def normalize_day(part):
+        """ Normaliza dia para dois digitos quando o nome da pasta representa 1..31. """
+        if re.fullmatch(r'\d{1,2}', part):
+            value = int(part)
+            if 1 <= value <= 31:
+                return f"{value:02d}"
+        return "??"
+
+    def extract_day_from_parts(self, path_parts, year_month_index):
+        """ Prioriza a pasta apos ano/mes como dia; se nao existir, tenta outra pasta numerica. """
+        if year_month_index is not None and (year_month_index + 1) < len(path_parts):
+            day = self.normalize_day(path_parts[year_month_index + 1])
+            if day != "??":
+                return day
+
+        for part in reversed(path_parts):
+            day = self.normalize_day(part)
+            if day != "??":
+                return day
+
+        return "??"
+
+    @staticmethod
+    def extract_date_from_filename_timestamp(filename):
+        """ Fallback: converte timestamp Unix no nome do arquivo para dd/mm/YYYY. """
+        match = re.search(r'(?<!\d)(1\d{9}|2\d{9})(?:\.\d+)?(?!\d)', filename)
+        if not match:
+            return None
+
+        try:
+            dt = datetime.fromtimestamp(int(match.group(1)))
+            return dt.strftime("%d/%m/%Y")
+        except (OverflowError, OSError, ValueError):
+            return None
     
     def extract_frame_info(self, filename):
         """ Utiliza Expressões Regulares (Regex) para identificar e extrair o número do frame no nome do arquivo. """
@@ -1051,6 +1116,114 @@ class CustomErrorsDialog(QDialog):
         else:
             QMessageBox.warning(self, "Erro", "Erro ao salvar!")
 
+class ClickableLabel(QLabel):
+    """ QLabel clicavel usado para transformar logos em atalhos sem alterar o visual. """
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+class ManualDialog(QDialog):
+    """ Janela interna com um manual rapido do BenaPRO. """
+    def __init__(self, parent, scale_x, scale_y):
+        super().__init__(parent)
+        self.scale_x = scale_x
+        self.scale_y = scale_y
+
+        self.setWindowTitle("Manual do BenaPRO")
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowStaysOnTopHint)
+        self.setGeometry(
+            int(610 * self.scale_x),
+            int(170 * self.scale_y),
+            int(720 * self.scale_x),
+            int(700 * self.scale_y)
+        )
+        self.setMinimumSize(int(560 * self.scale_x), int(520 * self.scale_y))
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: #2b2b2b;
+                color: white;
+            }}
+            QTextEdit {{
+                background-color: #1f1f1f;
+                color: white;
+                border: 1px solid #555;
+                border-radius: {max(1, int(5 * min(self.scale_x, self.scale_y)))}px;
+                padding: {max(6, int(12 * min(self.scale_x, self.scale_y)))}px;
+            }}
+            QPushButton {{
+                background-color: #4a4a4a;
+                border: 1px solid #6a6a6a;
+                border-radius: {max(1, int(5 * min(self.scale_x, self.scale_y)))}px;
+                color: white;
+                padding: {max(6, int(10 * min(self.scale_x, self.scale_y)))}px;
+                font-size: {max(12, int(15 * min(self.scale_x, self.scale_y)))}px;
+            }}
+            QPushButton:hover {{
+                background-color: #6a6a6a;
+            }}
+        """)
+
+        text_edit = QTextEdit(self)
+        text_edit.setReadOnly(True)
+        text_edit.setFont(QFont("Times", max(12, int(13 * min(scale_x, scale_y)))))
+
+        manual_texto = (
+            "<h2 style='text-align: center;'>Manual do BenaPRO</h2>"
+            "<p style='text-align: center;'>"
+            "O BenaPRO é um software de rotulagem e avaliação de imagens biométricas, "
+            "pensado para registrar erros observados em cada arquivo analisado."
+            "</p><br>"
+
+            "<h3>1. Carregar e navegar</h3>"
+            "<ul>"
+            "<li><b>Carregar ZIP</b>: selecione um arquivo compactado com as imagens que serão avaliadas.</li>"
+            "<li>O programa organiza os arquivos, extrai informações como ID, data, dedo e frame quando disponíveis, e abre a primeira imagem pendente.</li>"
+            "<li>Use os botões de navegação, ou as setas esquerda e direita do teclado, para avançar ou voltar nas imagens.</li>"
+            "</ul><br>"
+
+            "<h3>2. Visualização da imagem</h3>"
+            "<ul>"
+            "<li><b>Cores</b>: aplica filtros de visualização, como normal, inverter cores, alto contraste, mais brilhante e mais escuro.</li>"
+            "<li><b>Zoom</b>: use a roda do mouse para aproximar ou afastar a imagem. Clique e arraste para mover a visualização ampliada.</li>"
+            "<li><b>Camadas RGBA</b>: quando a imagem possuir quatro canais, os botões 1 a 4 permitem visualizar Alpha, cristas, vales e minúcias separadamente.</li>"
+            "</ul><br>"
+
+            "<h3>3. Rotulagem de erros</h3>"
+            "<ul>"
+            "<li><b>Personalizar Erros</b>: cadastre ou edite os nomes de erro e suas descrições no catálogo do sistema.</li>"
+            "<li><b>Erro</b>: selecione os erros encontrados na imagem atual e escolha a descrição correspondente.</li>"
+            "<li><b>Avaliação</b>: atribua uma nota de 1 a 5 estrelas para cada erro selecionado.</li>"
+            "</ul><br>"
+
+            "<h3>4. Salvamento</h3>"
+            "<ul>"
+            "<li><b>Salvar</b>: grava a anotação da imagem atual no arquivo <code>BENAPRO/resultado.json</code>.</li>"
+            "<li>Para salvar, é necessário selecionar ao menos um erro e avaliar todos os erros escolhidos.</li>"
+            "<li>Após o salvamento, o programa marca o arquivo como avaliado e tenta avançar para a próxima imagem pendente.</li>"
+            "</ul><br>"
+
+            "<p style='text-align: center;'>Em caso de dúvidas ou sugestões, entre em contato:</p>"
+            "<h3 style='text-align: center;'>matheusaugustooliveira@alunos.utfpr.edu.br</h3>"
+        )
+
+        text_edit.setHtml(manual_texto)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(text_edit)
+
+        close_button = QPushButton("Fechar", self)
+        close_button.clicked.connect(self.accept)
+        close_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        layout.addWidget(close_button)
+
+
 class MainWindow(QMainWindow):
     """ Janela principal do aplicativo Benapro para análise e avaliação de imagens biométricas de impressões digitais. """
     def __init__(self):
@@ -1081,6 +1254,12 @@ class MainWindow(QMainWindow):
         os.makedirs("BENAPRO", exist_ok=True)
         self.current_color_filter = 'normal'
         self.original_pixmap = None
+        self.current_file_path = None
+        self._rgba_available = False
+        self._pending_media_index = None
+        self._media_nav_timer = QTimer(self)
+        self._media_nav_timer.setSingleShot(True)
+        self._media_nav_timer.timeout.connect(self._flush_pending_media_load)
         
         self.init_ui()
         self.showFullScreen()
@@ -1339,13 +1518,19 @@ class MainWindow(QMainWindow):
         self.btn_fechar.setStyleSheet(style_close)
         self.btn_fechar.clicked.connect(self.close)
 
-        self.logo_cnpq = QLabel(self)
+        self.logo_cnpq = ClickableLabel(self)
         self.logo_cnpq.setGeometry(self.sx(40), self.sy(905), self.sx(190), self.sy(65))
         self.load_processed_image(self.logo_cnpq, "CNPQ.png", self.sx(190), self.sy(65), opacity=1.0)
+        self.logo_cnpq.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.logo_cnpq.setToolTip("Abrir manual do BenaPRO")
+        self.logo_cnpq.clicked.connect(self.open_manual)
         
-        self.logo_utfpr = QLabel(self)
+        self.logo_utfpr = ClickableLabel(self)
         self.logo_utfpr.setGeometry(self.sx(1663), self.sy(905), self.sx(190), self.sy(65))
         self.load_processed_image(self.logo_utfpr, "UTFPR.png", self.sx(190), self.sy(65), opacity=1.0)
+        self.logo_utfpr.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.logo_utfpr.setToolTip("Abrir site do projeto")
+        self.logo_utfpr.clicked.connect(self.open_project_site)
 
     def create_icon(self, standard_pixmap):
         """ Cria um ícone branco estilizado a partir de um ícone padrão do sistema. """
@@ -1398,6 +1583,20 @@ class MainWindow(QMainWindow):
         """ Alterna entre modo tela cheia e janela normal. """
         if self.isFullScreen(): self.showNormal()
         else: self.showFullScreen()
+
+    def open_manual(self):
+        """ Abre ou foca o manual interno do BenaPRO. """
+        if hasattr(self, 'manual_dialog') and self.manual_dialog and self.manual_dialog.isVisible():
+            self.manual_dialog.raise_()
+            self.manual_dialog.activateWindow()
+            return
+
+        self.manual_dialog = ManualDialog(self, self.scale_x, self.scale_y)
+        self.manual_dialog.show()
+
+    def open_project_site(self):
+        """ Abre o site do projeto de biometria da UTFPR no navegador padrao. """
+        QDesktopServices.openUrl(QUrl("https://sites.google.com/view/utfprbiometria"))
 
     def open_custom_errors(self):
         """ Abre o diálogo de personalização de erros para criar e editar o catálogo. """
@@ -1540,6 +1739,8 @@ class MainWindow(QMainWindow):
         self.current_zip_name = os.path.basename(file_path)
         self.media_files = []
         self.current_media_index = 0
+        self._pending_media_index = None
+        self._media_nav_timer.stop()
 
         self.progress_dialog = ProgressDialog(self)
         self.zip_thread = ZipLoaderThread(file_path, self.temp_dir)
@@ -1572,7 +1773,7 @@ class MainWindow(QMainWindow):
             
         self.current_media_index = first_unevaluated_index
         
-        self.load_current_media()
+        self.request_media_load(self.current_media_index, immediate=True)
         
         total = len(self.media_files)
         avaliados = len(self.evaluated_files)
@@ -1586,6 +1787,33 @@ class MainWindow(QMainWindow):
             f"Pendentes: {pendentes}"
         ))
 
+    def request_media_load(self, target_index, immediate=False):
+        """ Agenda o carregamento da imagem atual com debounce para evitar sobrecarga em navegaÃ§Ã£o rÃ¡pida. """
+        if not hasattr(self, 'media_files') or not self.media_files:
+            return
+
+        target_index = max(0, min(target_index, len(self.media_files) - 1))
+        self.current_media_index = target_index
+        self._pending_media_index = target_index
+        if immediate:
+            self._media_nav_timer.start(0)
+            return
+
+        if not self._media_nav_timer.isActive():
+            self._media_nav_timer.start(15)
+
+    def _flush_pending_media_load(self):
+        """ Executa o Ãºltimo carregamento pendente de imagem solicitado pela navegaÃ§Ã£o. """
+        if self._pending_media_index is None:
+            return
+        if not hasattr(self, 'media_files') or not self.media_files:
+            self._pending_media_index = None
+            return
+
+        self.current_media_index = self._pending_media_index
+        self._pending_media_index = None
+        self.load_current_media()
+
     def load_current_media(self):
         """ Carrega a imagem atual, detecta camadas RGBA, atualiza interface e prepara visualização. """
         if not self.media_files:
@@ -1593,6 +1821,7 @@ class MainWindow(QMainWindow):
 
         item = self.media_files[self.current_media_index]
         file_path = item['file_path'] 
+        self.current_file_path = file_path
         
         self.lbl_id.setText(str(item['id']).upper())
         self.lbl_data.setText(str(item['data']))
@@ -1602,6 +1831,7 @@ class MainWindow(QMainWindow):
         
         self.camada_atual = None
         self.canais_rgba = None
+        self._rgba_available = False
         for btn in self.camada_buttons:
             btn.setChecked(False)
             btn.setEnabled(False) 
@@ -1610,19 +1840,17 @@ class MainWindow(QMainWindow):
 
         if img_cv is not None and img_cv.ndim == 3 and img_cv.shape[2] == 4:
             self.lbl_camada.setText("4 Camadas")
+            self._rgba_available = True
             
             for btn in self.camada_buttons:
                 btn.setEnabled(True)
-
-            b, g, r, a = cv2.split(img_cv)
-
-            self.canais_rgba = [a, r, g, b]
             
         else:
             self.lbl_camada.setText("Imagem Normal")
 
-        self.original_pixmap = QPixmap(file_path)
-        self.master_pixmap = QPixmap(file_path) 
+        pixmap = QPixmap(file_path)
+        self.original_pixmap = pixmap
+        self.master_pixmap = pixmap
         
         if self.original_pixmap.isNull():
             self.logo_centro.setText("Erro ao carregar")
@@ -1649,15 +1877,13 @@ class MainWindow(QMainWindow):
         """ Avança para a próxima imagem na lista de mídias carregadas. """
         if hasattr(self, 'media_files') and self.media_files:
             if self.current_media_index < len(self.media_files) - 1:
-                self.current_media_index += 1
-                self.load_current_media()
+                self.request_media_load(self.current_media_index + 1)
 
     def prev_image(self):
         """ Retorna para a imagem anterior na lista de mídias carregadas. """
         if hasattr(self, 'media_files') and self.media_files:
             if self.current_media_index > 0:
-                self.current_media_index -= 1
-                self.load_current_media()
+                self.request_media_load(self.current_media_index - 1)
     
     def keyPressEvent(self, event):
         """ Captura eventos de teclado para navegação e controle da interface. """
@@ -1770,7 +1996,7 @@ class MainWindow(QMainWindow):
         for i in range(start_index, len(self.media_files)):
             if self.media_files[i]['filename'] not in self.evaluated_files:
                 self.current_media_index = i
-                self.load_current_media()
+                self.request_media_load(self.current_media_index, immediate=True)
                 return
 
         QMessageBox.information(self, "Concluído", "Você chegou ao fim da lista ou todas as imagens seguintes já foram avaliadas!")
@@ -1959,14 +2185,13 @@ class MainWindow(QMainWindow):
             return
         
         self.current_color_filter = filter_type
-        
-        image = self.original_pixmap.toImage()
         processed_pixmap = None
 
         if filter_type == 'normal':
             processed_pixmap = self.original_pixmap
             
         elif filter_type == 'invert':
+            image = self.original_pixmap.toImage()
             image.invertPixels()
             processed_pixmap = QPixmap.fromImage(image)
             
@@ -2007,33 +2232,30 @@ class MainWindow(QMainWindow):
         
         self._update_image_display()
 
-    def _update_image_display(self):
+    def _update_image_display(self, smooth=True):
         """ Renderiza a imagem processada com o fator de zoom aplicado na área de visualização. """
         if not self.current_processed_pixmap:
             return
 
-        view_w = self.video_widget.width()
-        view_h = self.video_widget.height()
+        view_w = max(1, self.video_widget.width())
+        view_h = max(1, self.video_widget.height())
         
         orig_w = self.current_processed_pixmap.width()
         orig_h = self.current_processed_pixmap.height()
+        if orig_w <= 0 or orig_h <= 0:
+            return
 
-        scaled_fit = self.current_processed_pixmap.scaled(
-            view_w, view_h, 
-            Qt.AspectRatioMode.KeepAspectRatio, 
-            Qt.TransformationMode.SmoothTransformation
-        )
+        fit_ratio = min(view_w / orig_w, view_h / orig_h)
+        base_w = max(1, int(orig_w * fit_ratio))
+        base_h = max(1, int(orig_h * fit_ratio))
         
-        base_w = scaled_fit.width()
-        base_h = scaled_fit.height()
-        
-        final_w = int(base_w * self.zoom_factor)
-        final_h = int(base_h * self.zoom_factor)
+        final_w = max(1, int(base_w * self.zoom_factor))
+        final_h = max(1, int(base_h * self.zoom_factor))
         
         final_pix = self.current_processed_pixmap.scaled(
             final_w, final_h,
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
+            Qt.TransformationMode.SmoothTransformation if smooth else Qt.TransformationMode.FastTransformation
         )
         
         self.logo_centro.setPixmap(final_pix)
@@ -2052,8 +2274,24 @@ class MainWindow(QMainWindow):
             
             return
 
-        if not self.canais_rgba:
+        if not self._rgba_available:
             return
+
+        if self.canais_rgba is None:
+            if not self.current_file_path:
+                return
+
+            img_cv = cv2.imread(self.current_file_path, cv2.IMREAD_UNCHANGED)
+            if img_cv is None or img_cv.ndim != 3 or img_cv.shape[2] != 4:
+                self._rgba_available = False
+                self.lbl_camada.setText("Imagem Normal")
+                for btn in self.camada_buttons:
+                    btn.setChecked(False)
+                    btn.setEnabled(False)
+                return
+
+            b, g, r, a = cv2.split(img_cv)
+            self.canais_rgba = [a, r, g, b]
 
         if self.camada_atual == numero:
             self.camada_atual = None
@@ -2140,7 +2378,7 @@ class MainWindow(QMainWindow):
 
                 self.zoom_factor = new_zoom
                 
-                self._update_image_display()
+                self._update_image_display(smooth=False)
 
                 w1 = self.logo_centro.width()
                 h1 = self.logo_centro.height()
