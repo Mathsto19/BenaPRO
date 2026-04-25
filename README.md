@@ -1,137 +1,177 @@
-# BenaPRO – Ferramenta de Anotação para Biometria Neonatal
+# BENAPRO - Repositorio Oficial
 
-Ferramenta de anotação e inspeção desenvolvida para criar labels estruturados em datasets de biometria neonatal, com foco em consistência e controle de qualidade.
+Bem-vindo ao **BENAPRO**, um projeto voltado para rotulagem, inspecao e padronizacao de dados de biometria neonatal, com foco em impressoes digitais de recem-nascidos.
+
+Este repositorio reune:
+- **Aplicativo executavel (Windows)** para uso direto em campo/laboratorio
+- **Codigo fonte em Python** para desenvolvimento, manutencao e pesquisa
 
 ---
 
 ## Sobre o Projeto
 
-O BenaPRO foi desenvolvido para resolver um problema crítico na pesquisa em biometria neonatal: a necessidade de anotar erros de forma estruturada e consistente em imagens de impressões digitais de recém-nascidos. A ferramenta permite identificar múltiplos tipos de erros simultaneamente (classificação multirrótulo), atribuir níveis de severidade e gerar datasets padronizados para treinamento de modelos de inteligência artificial.
+O BENAPRO foi desenvolvido para resolver um gargalo importante na pesquisa em biometria neonatal: a falta de rotulagem estruturada e consistente da qualidade das digitais coletadas.
+
+A ferramenta permite:
+- classificacao multirrotulo (mais de um erro por imagem)
+- avaliacao de severidade por erro (1 a 5)
+- visualizacao de multiplas representacoes da mesma digital
+- exportacao rastreavel para formacao de datasets
+
+Com isso, o projeto apoia estudos de inteligencia artificial para analise de qualidade, alinhamento e reconhecimento biometrico neonatal.
+
+---
+
+## Estrutura do Repositorio
+
+```text
+BENAPRO/
+|-- Aplicativo/
+|   |-- README.md
+|-- Codigo Fonte/
+|   |-- BenaPRO.py
+|   |-- Requeriments.txt
+|   |-- README.md
+|   |-- Complementos/
+|   |-- Exemplos/
+|   `-- Fotos/
+|-- LICENSE
+`-- README.md
+```
+
+---
+
+## Componentes
+
+### 1. Aplicativo
+
+Contem a versao empacotada para uso no Windows, sem necessidade de preparar ambiente Python manualmente.
+
+Manual especifico:
+- `Aplicativo/README.md`
+
+### 2. Codigo Fonte
+
+Contem a implementacao principal em Python para execucao, ajuste e evolucao do projeto.
+
+Arquivos principais:
+- `Codigo Fonte/BenaPRO.py`
+- `Codigo Fonte/Requeriments.txt`
+- `Codigo Fonte/README.md`
 
 ---
 
 ## Funcionalidades Principais
 
-- Classificação multirrótulo: identifique múltiplos erros em uma única imagem (ex.: desfoque + sujeira + posicionamento)
-- Escala de severidade: avalie a gravidade de cada erro em uma escala de 1 a 5 estrelas
-- Visualização multi-canal: visualize simultaneamente 4 representações da mesma digital (pré-processada, segmentação de cristas, vales e mapa de minúcias)
-- Exportação estruturada: dados exportados em formato JSON com rastreabilidade completa (ID, dedo, data, erros)
-- Catálogo de erros: sistema baseado em 9 categorias de erro padronizadas
+- **Carregamento por ZIP**: leitura de pacotes de imagens para analise sequencial
+- **Visualizacao avancada**: zoom, arraste e filtros (normal, invertido, contraste, etc.)
+- **Camadas RGBA**: alternancia entre canais para apoio tecnico na inspecao
+- **Catalogo de erros**: cadastro/edicao de tipos de erro e descricoes
+- **Avaliacao por severidade**: notas de 1 a 5 para cada erro selecionado
+- **Exportacao estruturada**: salvamento das anotacoes em JSON para uso cientifico
 
 ---
 
-## Catálogo de Erros
+## Catalogo de Erros (Padrao)
 
-| Código | Categoria | Descrição |
+| Codigo | Categoria | Descricao |
 |--------|-----------|-----------|
-| E01 | Digital Escura | Excesso de pressão, cristas fundidas |
-| E02 | Manchas na Digital | Resíduos ou descamação entre as cristas |
-| E03 | Fiapos na Digital | Presença de fibras de tecido |
-| E04 | Escâner Sujo | Sujeira na superfície do sensor |
-| E05 | Digital Clara | Falta de pressão, cristas descontínuas |
-| E06 | Dedo Fora da Área | Posicionamento incorreto no sensor |
+| E01 | Digital Escura | Excesso de pressao, cristas fundidas |
+| E02 | Manchas na Digital | Residuos ou descamacao entre as cristas |
+| E03 | Fiapos na Digital | Presenca de fibras de tecido |
+| E04 | Escaner Sujo | Sujeira na superficie do sensor |
+| E05 | Digital Clara | Falta de pressao, cristas descontinuas |
+| E06 | Dedo Fora da Area | Posicionamento incorreto no sensor |
 | E07 | Fora de Foco | Movimento durante a captura |
-| E08 | Sem Padrão Visível | Impossível identificar cristas |
-| E09 | Segmentação Boa | Imagem adequada para uso biométrico |
+| E08 | Sem Padrao Visivel | Impossivel identificar cristas |
+| E09 | Segmentacao Boa | Imagem adequada para uso biometrico |
 
 ---
 
-## Tecnologias
+## Como Executar
 
-![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
-![PyQt](https://img.shields.io/badge/PyQt-41CD52?style=flat-square&logo=qt&logoColor=white)
+### Opcao A - Usar o aplicativo (Windows)
 
-- Python 3.10+
-- PyQt6 – Interface gráfica
-- OpenCV – Processamento de imagens
-- NumPy – Manipulação de dados
+1. Acesse a pasta do aplicativo.
+2. Execute `BENAPRO.exe`.
+3. Siga as instrucoes do manual em `Aplicativo/README.md`.
 
----
+### Opcao B - Rodar pelo codigo fonte (Python)
 
-## Como Usar
+1. Entre em `Codigo Fonte/`.
+2. Instale as dependencias:
 
-### 1. Carregar Imagens
-- Selecione um pacote `.zip` contendo as imagens organizadas por ID e dedo
-- O sistema carrega automaticamente os metadados (data, ID do paciente, dedo)
+```bash
+pip install -r Requeriments.txt
+```
 
-### 2. Anotar Erros
-- Selecione múltiplos erros: marque todos os problemas presentes na imagem
-- Avalie a severidade: atribua uma nota de 1 (leve) a 5 (crítico) para cada erro
-- Visualize as 4 representações: use as diferentes visualizações para identificar problemas sutis
+3. Execute o sistema:
 
-### 3. Exportar Dados
-- As anotações são salvas automaticamente em formato JSON
-- Cada registro inclui: arquivo, data, ID, dedo, lista de erros e timestamps
+```bash
+python BenaPRO.py
+```
 
 ---
 
-## Estrutura de Dados
+## Saida de Dados
 
-```json
-{
-  "pacote": "2024-01.zip",
-  "imagens": [
-    {
-      "arquivo": "5ededao.png",
-      "data": "30/01/2024",
-      "id": "act",
-      "dedo": "5ededao",
-      "erros": [
-        {
-          "nome": "Dedo Fora da Área",
-          "descricao": "Parte da digital ficou fora da área de captura",
-          "avaliacao": 2,
-          "timestamp": "2025-08-09 11:14:09"
-        }
-      ]
-    }
-  ]
-}
-````
+As anotacoes sao salvas em arquivo JSON estruturado, geralmente em:
+
+```text
+BENAPRO/resultado.json
+```
+
+Os registros podem incluir:
+- arquivo analisado
+- data
+- identificador do paciente
+- dedo/frame
+- erros selecionados
+- avaliacoes por erro
+- timestamp da anotacao
 
 ---
 
-## Aplicação na Pesquisa
+## Requisitos Tecnicos
 
-O BenaPRO foi desenvolvido para:
-
-* Criar datasets consistentes para treinar modelos de deep learning
-* Reduzir o ruído de rotulagem (label noise) em pesquisas de biometria
-* Padronizar a avaliação de qualidade entre diferentes anotadores
-* Gerar dados para sistemas de feedback em tempo real durante a coleta
-
-Resultados: foram anotadas 1.019 imagens de 39 recém-nascidos, totalizando 2.135 rótulos individuais.
+- Sistema operacional: Windows 10/11 (aplicativo) e ambiente Python para desenvolvimento
+- Python: 3.10+
+- Bibliotecas principais: PyQt6, OpenCV, NumPy
+- RAM recomendada: 8 GB
+- Espaco em disco: conforme volume de imagens e pacotes ZIP
 
 ---
 
-## Requisitos
+## Impacto Cientifico
 
-* Sistema Operacional: Windows 10+ ou Linux Ubuntu 20.04+
-* Python: 3.10 ou superior
-* Memória RAM: 4 GB mínimo
-* Espaço em disco: 100 MB para a ferramenta + espaço para imagens
+O BENAPRO contribui para:
+- reducao de ruido de rotulagem em datasets biometricos
+- padronizacao entre diferentes anotadores
+- criacao de base confiavel para treinamento de modelos de IA
+- melhoria de processos de controle de qualidade na coleta neonatal
 
 ---
 
 ## Suporte e Contato
 
-Para dúvidas ou colaborações:
+Para duvidas, suporte tecnico ou colaboracoes:
 
-* Matheus Augusto — [matheusaugustooliveira@alunos.utfpr.edu.br](mailto:matheusaugustooliveira@alunos.utfpr.edu.br)
+- Matheus Augusto - [matheusaugustooliveira@alunos.utfpr.edu.br](mailto:matheusaugustooliveira@alunos.utfpr.edu.br)
 
 ---
 
 ## Agradecimentos
 
-Este projeto foi desenvolvido na UTFPR com apoio das seguintes instituições:
+Este projeto foi desenvolvido na UTFPR com apoio das instituicoes:
 
-* CNPq – Suporte financeiro via bolsa de Iniciação Científica
-* CAPES – Código de Financiamento 001
-* InfantID – Parceria e colaboração técnica
-* UTFPR – Campus Pato Branco – Infraestrutura e grupo de pesquisa em Biometria Neonatal
+- CNPq
+- CAPES (Codigo de Financiamento 001)
+- InfantID
+- UTFPR - Campus Pato Branco
 
 ---
 
-## Licença
+## Licenca
 
-Distribuição autorizada apenas para fins acadêmicos, científicos e de pesquisa. Uso comercial ou redistribuição sem permissão é proibido.
+Distribuicao autorizada apenas para fins academicos, cientificos e de pesquisa.
+Uso comercial ou redistribuicao sem permissao e proibido.
