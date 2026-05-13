@@ -63,9 +63,7 @@ class ColorFiltersDialog(QDialog):
         self.parent_window = parent
         self.init_ui()
 
-        pos = SETTINGS.value("ColorFiltersDialog/pos", None)
-        if isinstance(pos, QPoint):
-            self.move(pos)
+        restore_dialog_position(self, "ColorFiltersDialog/pos")
         
     def init_ui(self):
         """ Configura o layout, estilos e conecta os checkboxes aos métodos de filtro. """
@@ -140,6 +138,38 @@ class ColorFiltersDialog(QDialog):
         super().hideEvent(event)
 
 SETTINGS = QSettings("BenaproDev", "Benapro")
+
+def center_dialog_on_screen(dialog):
+    """Centraliza o dialogo na tela do pai, respeitando a area disponivel."""
+    parent = dialog.parentWidget()
+    screen = parent.screen() if parent and parent.screen() else QApplication.primaryScreen()
+    geometry = screen.availableGeometry()
+    x = geometry.x() + (geometry.width() - dialog.width()) // 2
+    y = geometry.y() + (geometry.height() - dialog.height()) // 2
+    dialog.move(x, y)
+
+def restore_dialog_position(dialog, settings_key, center_if_invalid=True):
+    """Restaura a posicao salva apenas se ela ainda estiver visivel."""
+    pos = SETTINGS.value(settings_key, None)
+    if isinstance(pos, QPoint):
+        width = max(dialog.width(), 80)
+        height = max(dialog.height(), 80)
+        for screen in QApplication.screens():
+            geometry = screen.availableGeometry()
+            if (
+                pos.x() + width > geometry.left()
+                and pos.x() < geometry.right()
+                and pos.y() + height > geometry.top()
+                and pos.y() < geometry.bottom()
+            ):
+                dialog.move(pos)
+                return
+
+        SETTINGS.remove(settings_key)
+
+    if center_if_invalid:
+        center_dialog_on_screen(dialog)
+
 from functools import partial
 class ZipLoaderThread(QThread):
     """ Thread responsável por extrair o arquivo ZIP em segundo plano e organizar a lista de mídias, evitando o congelamento da interface. """
@@ -346,6 +376,13 @@ class AvaliacaoDialog(QDialog):
         self.parent_window = parent
         self.erros_selecionados = erros_selecionados or []
         self.avaliacoes = {}
+        for i, erro in enumerate(self.erros_selecionados):
+            try:
+                avaliacao = int(erro.get('avaliacao', 0))
+            except (TypeError, ValueError):
+                avaliacao = 0
+            if avaliacao > 0:
+                self.avaliacoes[i] = avaliacao
         
         self.setUpdatesEnabled(False)
         
@@ -362,11 +399,7 @@ class AvaliacaoDialog(QDialog):
         
         self.setUpdatesEnabled(True)
         
-        pos = SETTINGS.value("AvaliacaoDialog/pos", None)
-        if isinstance(pos, QPoint):
-            self.move(pos)
-        else:
-            self.center_on_screen()
+        restore_dialog_position(self, "AvaliacaoDialog/pos")
 
     def prepare_cached_styles(self):
         """ Retorna um dicionário com strings de estilo CSS pré-definidas para otimizar a criação da interface. """
@@ -430,6 +463,8 @@ class AvaliacaoDialog(QDialog):
         for i, erro in enumerate(self.erros_selecionados):
             erro_frame = self.create_erro_frame_optimized(i, erro)
             self.scroll_layout.addWidget(erro_frame)
+            self.atualizar_estrelas_display(i)
+            self.atualizar_label_avaliacao(i)
         QApplication.processEvents()
 
     def create_scroll_area(self):
@@ -454,6 +489,8 @@ class AvaliacaoDialog(QDialog):
                 erro = self.erros_selecionados[self.erro_index_atual]
                 erro_frame = self.create_erro_frame_optimized(self.erro_index_atual, erro)
                 self.scroll_layout.addWidget(erro_frame)
+                self.atualizar_estrelas_display(self.erro_index_atual)
+                self.atualizar_label_avaliacao(self.erro_index_atual)
                 self.erro_index_atual += 1
         
         if self.erro_index_atual < len(self.erros_selecionados):
@@ -595,12 +632,11 @@ class AvaliacaoDialog(QDialog):
     
     def center_on_screen(self):
         """ Calcula a geometria da tela e centraliza o diálogo. """
-        screen = QApplication.primaryScreen().geometry()
-        self.move((screen.width() - self.width()) // 2, (screen.height() - self.height()) // 2)
+        center_dialog_on_screen(self)
     
     def get_avaliacoes(self):
         """ Retorna um dicionário contendo todas as notas atribuídas até o momento. """
-        return self.avaliacoes
+        return dict(self.avaliacoes)
     
     def todas_avaliacoes_preenchidas(self):
         """ Valida se todos os erros listados receberam uma nota maior que zero. """
@@ -655,11 +691,7 @@ class ErroDialog(QDialog):
         # Restaurar seleção anterior
         self.restaurar_selecao()
         
-        pos = SETTINGS.value("ErroDialog/pos", None)
-        if isinstance(pos, QPoint):
-            self.move(pos)
-        else:
-            self.center_on_screen()
+        restore_dialog_position(self, "ErroDialog/pos")
     
     def apply_styles(self):
         """ Define o tema visual escuro do diálogo e estilos para todos os componentes da interface. """
@@ -790,8 +822,7 @@ class ErroDialog(QDialog):
 
     def center_on_screen(self):
         """ Centraliza o diálogo na tela principal do usuário. """
-        screen = QApplication.primaryScreen().geometry()
-        self.move((screen.width() - self.width()) // 2, (screen.height() - self.height()) // 2)
+        center_dialog_on_screen(self)
 
     def get_selections(self):
         """ Retorna uma tupla contendo listas vazias de nomes e tuplas (nome, descrição) das descrições selecionadas. """
@@ -896,9 +927,7 @@ class CustomErrorsDialog(QDialog):
         self.init_ui()
         self.load_existing_errors()
 
-        pos = SETTINGS.value("CustomErrorsDialog/pos", None)
-        if isinstance(pos, QPoint):
-            self.move(pos)
+        restore_dialog_position(self, "CustomErrorsDialog/pos")
         
     def init_ui(self):
         """ Constrói a interface com abas para gerenciar nomes de erros e suas descrições detalhadas. """
@@ -1488,12 +1517,16 @@ class MainWindow(QMainWindow):
 
         self.scroll_area = QScrollArea(self.video_widget)
         self.scroll_area.setGeometry(0, 0, self.video_widget.width(), self.video_widget.height())
-        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidgetResizable(False)
+        self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.scroll_area.setStyleSheet("background-color: black; border: none;")
         
         self.logo_centro = QLabel()
         self.logo_centro.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.logo_centro.setStyleSheet("background-color: black;")
+        self.logo_centro.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.logo_centro.setMinimumSize(1, 1)
+        self.logo_centro.setScaledContents(False)
         self.scroll_area.setWidget(self.logo_centro)
         
         self.zoom_factor = 1.0
@@ -1684,6 +1717,8 @@ class MainWindow(QMainWindow):
                 
                 label.setPixmap(final_pixmap)
                 label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                if label is getattr(self, 'logo_centro', None):
+                    label.resize(final_pixmap.size())
                 return
         
         label.setText(filename.replace(".png", ""))
@@ -1714,6 +1749,47 @@ class MainWindow(QMainWindow):
         dialog = CustomErrorsDialog(self)
         dialog.exec()
 
+    def _erro_key(self, erro):
+        return (erro.get('nome'), erro.get('descricao'))
+
+    def _avaliacoes_por_erro(self):
+        avaliacoes = {}
+
+        for erro in self.erros_atuais:
+            avaliacao = erro.get('avaliacao')
+            if avaliacao:
+                avaliacoes[self._erro_key(erro)] = avaliacao
+
+        if self.ultimo_estado_avaliacao:
+            for erro_index, avaliacao in self.ultimo_estado_avaliacao.items():
+                try:
+                    idx = int(erro_index)
+                except (TypeError, ValueError):
+                    continue
+                if avaliacao and 0 <= idx < len(self.erros_atuais):
+                    avaliacoes[self._erro_key(self.erros_atuais[idx])] = avaliacao
+
+        dialog = getattr(self, 'avaliacao_dialog', None)
+        if dialog:
+            erros_dialog = getattr(dialog, 'erros_selecionados', [])
+            for erro_index, avaliacao in dialog.get_avaliacoes().items():
+                try:
+                    idx = int(erro_index)
+                except (TypeError, ValueError):
+                    continue
+                if avaliacao and 0 <= idx < len(erros_dialog):
+                    avaliacoes[self._erro_key(erros_dialog[idx])] = avaliacao
+
+        return avaliacoes
+
+    def _salvar_estado_avaliacao_atual_por_indice(self):
+        estado = {
+            i: erro.get('avaliacao')
+            for i, erro in enumerate(self.erros_atuais)
+            if erro.get('avaliacao')
+        }
+        self.ultimo_estado_avaliacao = estado or None
+
     def open_erro_selector(self):
         """ Abre o diálogo de seleção de erros e processa a escolha do usuário, incluindo easter egg. """
         if not self.verificar_zip_carregado():
@@ -1740,16 +1816,26 @@ class MainWindow(QMainWindow):
 
     def processar_selecao_erros(self, dialog):
         """ Processa os erros selecionados após o usuário confirmar a seleção. """
+        if dialog is None:
+            return
+
         _, descricoes = dialog.get_selections()
 
         nomes = [d[0] for d in descricoes]
 
-        erros_novos = [{"nome": nome, "descricao": desc} for nome, desc in descricoes]
+        avaliacoes_por_erro = self._avaliacoes_por_erro()
+        erros_novos = []
+        for nome, desc in descricoes:
+            erro = {"nome": nome, "descricao": desc}
+            avaliacao = avaliacoes_por_erro.get((nome, desc))
+            if avaliacao:
+                erro['avaliacao'] = avaliacao
+            erros_novos.append(erro)
+
         assinatura_anterior = [(e.get('nome'), e.get('descricao')) for e in self.erros_atuais]
         assinatura_nova = [(e['nome'], e['descricao']) for e in erros_novos]
 
         if assinatura_nova != assinatura_anterior:
-            self.ultimo_estado_avaliacao = None
             if hasattr(self, 'avaliacao_dialog') and self.avaliacao_dialog and self.avaliacao_dialog.isVisible():
                 self.avaliacao_dialog.close()
 
@@ -1757,6 +1843,7 @@ class MainWindow(QMainWindow):
             self.toggle_easter_egg()
         else:
             self.erros_atuais = erros_novos
+            self._salvar_estado_avaliacao_atual_por_indice()
 
     def toggle_easter_egg(self):
         """ Ativa ou desativa o modo especial SPFC com áudio e imagem temática. """
@@ -1782,6 +1869,7 @@ class MainWindow(QMainWindow):
                     w, h = self.sx(600), self.sy(600)
                     scaled = pixmap.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
                     self.logo_centro.setPixmap(scaled)
+                    self.logo_centro.resize(scaled.size())
                     self.logo_centro.setAlignment(Qt.AlignmentFlag.AlignCenter)
             else:
                 self.logo_centro.setText("SPFC - O MAIS QUERIDO")
@@ -2276,11 +2364,6 @@ class MainWindow(QMainWindow):
 
             self.limpar_formulario()
             
-            if hasattr(self, 'erro_dialog') and self.erro_dialog:
-                self.erro_dialog.close()
-            if hasattr(self, 'avaliacao_dialog') and self.avaliacao_dialog:
-                self.avaliacao_dialog.close()
-            
             self.update_contador_ui()
             self.jump_to_next_unevaluated()
             
@@ -2289,6 +2372,39 @@ class MainWindow(QMainWindow):
 
     def limpar_formulario(self):
         """ Reseta o estado de erros e avaliações após salvar com sucesso. """
+        if hasattr(self, 'erro_dialog') and self.erro_dialog:
+            dialog = self.erro_dialog
+            try:
+                if hasattr(dialog, 'clear_all_selections'):
+                    dialog.clear_all_selections()
+                if hasattr(dialog, 'salvar_selecao_atual'):
+                    dialog.salvar_selecao_atual()
+                dialog.finished.disconnect()
+            except TypeError:
+                pass
+            finally:
+                dialog.blockSignals(True)
+                dialog.close()
+                dialog.blockSignals(False)
+                self.erro_dialog = None
+
+        if hasattr(self, 'avaliacao_dialog') and self.avaliacao_dialog:
+            dialog = self.avaliacao_dialog
+            try:
+                dialog.finished.disconnect()
+                dialog.accepted.disconnect()
+            except TypeError:
+                pass
+            finally:
+                dialog.blockSignals(True)
+                dialog.close()
+                dialog.blockSignals(False)
+                self.avaliacao_dialog = None
+
+        SETTINGS.remove("ErroDialog/selected_names")
+        SETTINGS.remove("ErroDialog/selected_descriptions")
+        SETTINGS.sync()
+
         self.erros_atuais = []
         self.ultimo_estado_avaliacao = None
     
@@ -2385,8 +2501,11 @@ class MainWindow(QMainWindow):
             Qt.TransformationMode.SmoothTransformation if smooth else Qt.TransformationMode.FastTransformation
         )
         
+        self.logo_centro.setUpdatesEnabled(False)
         self.logo_centro.setPixmap(final_pix)
-        self.logo_centro.resize(final_w, final_h)
+        self.logo_centro.resize(final_pix.size())
+        self.logo_centro.setUpdatesEnabled(True)
+        self.logo_centro.update()
     
     def selecionar_camada(self, numero):
         """ Alterna a visualização entre camadas RGBA individuais ou imagem original completa. """
@@ -2461,14 +2580,14 @@ class MainWindow(QMainWindow):
         if source is self.logo_centro and self.original_pixmap:
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self._pan_active = True
-                self._pan_start = event.position().toPoint()
+                self._pan_start = event.globalPosition().toPoint()
                 self._h0 = self.scroll_area.horizontalScrollBar().value()
                 self._v0 = self.scroll_area.verticalScrollBar().value()
                 self.logo_centro.setCursor(Qt.CursorShape.ClosedHandCursor)
                 return True
 
             if event.type() == QEvent.Type.MouseMove and getattr(self, '_pan_active', False):
-                delta = event.position().toPoint() - self._pan_start
+                delta = event.globalPosition().toPoint() - self._pan_start
                 self.scroll_area.horizontalScrollBar().setValue(self._h0 - delta.x())
                 self.scroll_area.verticalScrollBar().setValue(self._v0 - delta.y())
                 return True
@@ -2483,14 +2602,9 @@ class MainWindow(QMainWindow):
                     return False
 
                 pos = event.position().toPoint()
+                viewport_pos = self.logo_centro.mapTo(self.scroll_area.viewport(), pos)
                 hbar = self.scroll_area.horizontalScrollBar()
                 vbar = self.scroll_area.verticalScrollBar()
-
-                scroll_h = hbar.value()
-                scroll_v = vbar.value()
-
-                content_x = scroll_h + pos.x()
-                content_y = scroll_v + pos.y()
 
                 w0 = self.logo_centro.width()
                 h0 = self.logo_centro.height()
@@ -2510,8 +2624,8 @@ class MainWindow(QMainWindow):
                 w1 = self.logo_centro.width()
                 h1 = self.logo_centro.height()
                 
-                new_scroll_h = int(content_x * (w1 / w0) - pos.x())
-                new_scroll_v = int(content_y * (h1 / h0) - pos.y())
+                new_scroll_h = int(pos.x() * (w1 / w0) - viewport_pos.x())
+                new_scroll_v = int(pos.y() * (h1 / h0) - viewport_pos.y())
                 
                 hbar.setValue(new_scroll_h)
                 vbar.setValue(new_scroll_v)
